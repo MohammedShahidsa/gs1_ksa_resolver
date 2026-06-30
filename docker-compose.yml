@@ -1,0 +1,11 @@
+services:
+  gs1-resolver:
+    build: .
+    container_name: gs1-resolver
+    ports:
+      - "1091:1091"
+    env_file:
+      - .env
+    environment:
+      NPC_BASE: ${NPC_BASE:-https://npc.gs1.org.sa}
+    restart: unless-stopped
