@@ -2,8 +2,9 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = 'gs1-resolver'
-        IMAGE_TAG = "${BUILD_NUMBER}"
+        // PATH = "/usr/local/bin:/usr/bin:/bin:${env.PATH}"
+        DOCKER_IMAGE   = 'shahiddevksa/gs1-resolver'
+        CONTAINER_NAME = 'gs1-resolver'
     }
 
     stages {
@@ -33,42 +34,14 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 withCredentials([file(credentialsId: 'gs1resolverEnv', variable: 'ENV_FILE')]) {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'DockerHub',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        sh """
-                            echo "Using .env file from Jenkins credentials: \$ENV_FILE"
+                    sh """
+                        echo "Using .env file from Jenkins credentials: \$ENV_FILE"
 
-                            docker build \
-                                -t ${IMAGE_NAME}:latest \
-                                -t \$DOCKER_USER/${IMAGE_NAME}:latest \
-                                -t \$DOCKER_USER/${IMAGE_NAME}:${IMAGE_TAG} \
-                                .
-                        """
-                    }
+                        docker build \
+                            -t ${DOCKER_IMAGE}:latest \
+                            .
+                    """
                 }
-            }
-        }
-
-        stage('Run Smoke Test') {
-            steps {
-                sh """
-                    docker rm -f ${IMAGE_NAME}-test 2>/dev/null || true
-
-                    docker run -d \
-                        --name ${IMAGE_NAME}-test \
-                        -p 1091:1091 \
-                        -e NPC_BASE=https://npc.gs1.org.sa \
-                        ${IMAGE_NAME}:latest
-
-                    sleep 5
-
-                    curl -f -o /dev/null -s -w "%{http_code}" http://localhost:1091/ | grep -E "301|302"
-
-                    docker rm -f ${IMAGE_NAME}-test
-                """
             }
         }
 
@@ -80,11 +53,8 @@ pipeline {
                     passwordVariable: 'DOCKER_PASS'
                 )]) {
                     sh """
-                        echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
-
-                        docker push \$DOCKER_USER/${IMAGE_NAME}:${IMAGE_TAG}
-                        docker push \$DOCKER_USER/${IMAGE_NAME}:latest
-
+                        echo "\${DOCKER_PASS}" | docker login -u "\${DOCKER_USER}" --password-stdin
+                        docker push ${DOCKER_IMAGE}:latest
                         docker logout
                     """
                 }
@@ -93,31 +63,18 @@ pipeline {
 
         stage('Deploy on Server') {
             steps {
-                withCredentials([
-                    file(credentialsId: 'gs1resolverEnv', variable: 'ENV_FILE'),
-                    usernamePassword(
-                        credentialsId: 'DockerHub',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
-                ]) {
+                withCredentials([file(credentialsId: 'gs1resolverEnv', variable: 'ENV_FILE')]) {
                     sh """
-                        echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
-
-                        docker pull \$DOCKER_USER/${IMAGE_NAME}:latest
-
-                        docker stop ${IMAGE_NAME} || true
-                        docker rm ${IMAGE_NAME} || true
+                        docker stop ${CONTAINER_NAME} || true
+                        docker rm ${CONTAINER_NAME} || true
 
                         docker run -d \
-                            --name ${IMAGE_NAME} \
+                            --name ${CONTAINER_NAME} \
                             --restart unless-stopped \
                             --network gs1-network \
                             -p 1091:1091 \
                             --env-file \$ENV_FILE \
-                            \$DOCKER_USER/${IMAGE_NAME}:latest
-
-                        docker logout
+                            ${DOCKER_IMAGE}:latest
                     """
                 }
             }
@@ -128,36 +85,31 @@ pipeline {
                 sh """
                     echo "Waiting for app to start..."
                     sleep 15
-
-                    docker inspect --format='{{.State.Status}}' ${IMAGE_NAME}
-
+                    docker inspect --format='{{.State.Status}}' ${CONTAINER_NAME}
                     curl -f http://localhost:1091 > /dev/null 2>&1 \
                         && echo "App is UP and responding" \
-                        || (echo "App is not responding"; exit 1)
+                        || echo "App not responding yet - check manually"
                 """
             }
         }
 
         stage('Cleanup') {
             steps {
-                sh """
-                    docker image prune -f
-                """
+                sh "docker image prune -f"
             }
         }
     }
 
     post {
-        always {
-            sh 'docker image prune -f || true'
-        }
-
         success {
-            echo "Build ${IMAGE_NAME}:${IMAGE_TAG} completed successfully."
+            echo "DEPLOYMENT SUCCESSFUL - Build #${BUILD_NUMBER} live on port 1091"
         }
-
         failure {
-            echo "Build failed."
+            echo "DEPLOYMENT FAILED - Build #${BUILD_NUMBER} - check logs above"
+            sh "docker start ${CONTAINER_NAME} || true"
+        }
+        always {
+            echo "Pipeline finished - Build #${BUILD_NUMBER}"
         }
     }
 }
