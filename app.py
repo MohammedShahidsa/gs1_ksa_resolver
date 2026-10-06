@@ -12,10 +12,24 @@ app = FastAPI(
 
 # NPC_BASE = "https://npc.gs1.org.sa"
 NPC_BASE = os.getenv("NPC_BASE")
+SMARTLABEL_BASE = os.getenv("SMARTLABEL_BASE")
 
+@app.api_route("/smartlabel/{path:path}", methods=["GET", "POST"])
+async def smartlabel_resolver(request: Request, path: str):
+    query = request.url.query
+
+    target = f"{SMARTLABEL_BASE}/{path}"
+
+    if query:
+        target += f"?{query}"
+
+    return RedirectResponse(
+        url=target,
+        status_code=302
+    )
 
 @app.api_route("/{path:path}", methods=["GET", "POST"])
-async def resolver(request: Request, path: str):
+async def npc_resolver(request: Request, path: str):
     query = request.url.query
 
     target = f"{NPC_BASE}/{path}"

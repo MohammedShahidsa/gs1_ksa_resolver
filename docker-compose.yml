@@ -8,4 +8,5 @@ services:
       - .env
     environment:
       NPC_BASE: ${NPC_BASE:-https://npc.gs1.org.sa}
+      SMARTLABEL_BASE: ${SMARTLABEL_BASE:-http://localhost:3091/smartlabel}
     restart: unless-stopped
